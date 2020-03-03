@@ -4,7 +4,7 @@
 #
 Name     : rfc3987
 Version  : 1.3.8
-Release  : 6
+Release  : 7
 URL      : https://files.pythonhosted.org/packages/14/bb/f1395c4b62f251a1cb503ff884500ebd248eed593f41b469f89caa3547bd/rfc3987-1.3.8.tar.gz
 Source0  : https://files.pythonhosted.org/packages/14/bb/f1395c4b62f251a1cb503ff884500ebd248eed593f41b469f89caa3547bd/rfc3987-1.3.8.tar.gz
 Summary  : Parsing and validation of URIs (RFC 3986) and IRIs (RFC 3987)
@@ -16,7 +16,212 @@ Requires: rfc3987-python3 = %{version}-%{release}
 BuildRequires : buildreq-distutils3
 
 %description
-See http://pypi.python.org/pypi/rfc3987 or the docstrings in rfc3987.py.
+This module provides regular expressions according to `RFC 3986 "Uniform
+Resource Identifier (URI): Generic Syntax"
+<http://tools.ietf.org/html/rfc3986>`_ and `RFC 3987 "Internationalized
+Resource Identifiers (IRIs)" <http://tools.ietf.org/html/rfc3987>`_, and
+utilities for composition and relative resolution of references.
+
+
+API
+---
+
+**match** (string, rule='IRI_reference')
+    Convenience function for checking if `string` matches a specific rule.
+
+    Returns a match object or None::
+
+        >>> assert match('%C7X', 'pct_encoded') is None
+        >>> assert match('%C7', 'pct_encoded')
+        >>> assert match('%c7', 'pct_encoded')
+
+
+
+**parse** (string, rule='IRI_reference')
+    Parses `string` according to `rule` into a dict of subcomponents.
+
+    If `rule` is None, parse an IRI_reference `without validation
+    <http://tools.ietf.org/html/rfc3986#appendix-B>`_.
+
+    If regex_ is available, any rule is supported; with re_, `rule` must be
+    'IRI_reference' or some special case thereof ('IRI', 'absolute_IRI',
+    'irelative_ref', 'irelative_part', 'URI_reference', 'URI', 'absolute_URI',
+    'relative_ref', 'relative_part'). ::
+
+        >>> d = parse('http://tools.ietf.org/html/rfc3986#appendix-A',
+        ...           rule='URI')
+        >>> assert all([ d['scheme'] == 'http',
+        ...              d['authority'] == 'tools.ietf.org',
+        ...              d['path'] == '/html/rfc3986',
+        ...              d['query'] == None,
+        ...              d['fragment'] == 'appendix-A' ])
+
+
+
+**compose** (\*\*parts)
+    Returns an URI composed_ from named parts.
+
+    .. _composed: http://tools.ietf.org/html/rfc3986#section-5.3
+
+
+**resolve** (base, uriref, strict=True, return_parts=False)
+    Resolves_ an `URI reference` relative to a `base` URI.
+
+    `Test cases <http://tools.ietf.org/html/rfc3986#section-5.4>`_::
+
+        >>> base = resolve.test_cases_base
+        >>> for relative, resolved in resolve.test_cases.items():
+        ...     assert resolve(base, relative) == resolved
+
+    If `return_parts` is True, returns a dict of named parts instead of
+    a string.
+
+    Examples::
+
+        >>> assert resolve('urn:rootless', '../../name') == 'urn:name'
+        >>> assert resolve('urn:root/less', '../../name') == 'urn:/name'
+        >>> assert resolve('http://a/b', 'http:g') == 'http:g'
+        >>> assert resolve('http://a/b', 'http:g', strict=False) == 'http://a/g'
+
+    .. _Resolves: http://tools.ietf.org/html/rfc3986#section-5.2
+
+
+
+**patterns**
+    A dict of regular expressions with useful group names.
+    Compilable (with regex_ only) without need for any particular compilation
+    flag.
+
+**[bmp_][u]patterns[_no_names]**
+    Alternative versions of `patterns`.
+    [u]nicode strings without group names for the re_ module.
+    BMP only for narrow builds.
+
+**get_compiled_pattern** (rule, flags=0)
+    Returns a compiled pattern object for a rule name or template string.
+
+    Usage for validation::
+
+        >>> uri = get_compiled_pattern('^%(URI)s$')
+        >>> assert uri.match('http://tools.ietf.org/html/rfc3986#appendix-A')
+        >>> assert not get_compiled_pattern('^%(relative_ref)s$').match('#f#g')
+        >>> from unicodedata import lookup
+        >>> smp = 'urn:' + lookup('OLD ITALIC LETTER A')  # U+00010300
+        >>> assert not uri.match(smp)
+        >>> m = get_compiled_pattern('^%(IRI)s$').match(smp)
+
+    On narrow builds, non-BMP characters are (incorrectly) excluded::
+
+        >>> assert NARROW_BUILD == (not m)
+
+    For parsing, some subcomponents are captured in named groups (*only if*
+    regex_ is available, otherwise see `parse`)::
+
+        >>> match = uri.match('http://tools.ietf.org/html/rfc3986#appendix-A')
+        >>> d = match.groupdict()
+        >>> if REGEX:
+        ...     assert all([ d['scheme'] == 'http',
+        ...                  d['authority'] == 'tools.ietf.org',
+        ...                  d['path'] == '/html/rfc3986',
+        ...                  d['query'] == None,
+        ...                  d['fragment'] == 'appendix-A' ])
+
+        >>> for r in patterns.keys():
+        ...     assert get_compiled_pattern(r)
+
+
+
+**format_patterns** (\*\*names)
+    Returns a dict of patterns (regular expressions) keyed by
+    `rule names for URIs`_ and `rule names for IRIs`_.
+
+    See also the module level dicts of patterns, and `get_compiled_pattern`.
+
+    To wrap a rule in a named capture group, pass it as keyword argument:
+    rule_name='group_name'. By default, the formatted patterns contain no
+    named groups.
+
+    Patterns are `str` instances (be it in python 2.x or 3.x) containing ASCII
+    characters only.
+
+    Caveats:
+
+      - with re_, named capture groups cannot occur on multiple branches of an
+        alternation
+
+      - with re_ before python 3.3, ``\u`` and ``\U`` escapes must be
+        preprocessed (see `issue3665 <http://bugs.python.org/issue3665>`_)
+
+      - on narrow builds, character ranges beyond BMP are not supported
+
+    .. _rule names for URIs: http://tools.ietf.org/html/rfc3986#appendix-A
+    .. _rule names for IRIs: http://tools.ietf.org/html/rfc3987#section-2.2
+
+
+
+Dependencies
+------------
+
+Some features require regex_.
+
+This package's docstrings are tested on python 2.6, 2.7, and 3.2 to 3.6.
+Note that in python<=3.2, characters beyond the Basic Multilingual Plane are
+not supported on narrow builds (see `issue12729
+<http://bugs.python.org/issue12729>`_).
+
+
+Release notes
+-------------
+
+version 1.3.8:
+
+- fixed deprecated escape sequence
+
+version 1.3.6:
+
+- fixed a bug in IPv6 pattern:
+
+  >>> assert match('::0:0:0:0:0.0.0.0', 'IPv6address')
+
+version 1.3.4:
+
+- allowed for lower case percent encoding
+
+version 1.3.3:
+
+- fixed a bug in `resolve` which left "../" at the beginning of some paths
+
+version 1.3.2:
+
+- convenience function `match`
+- patterns restricted to the BMP for narrow builds
+- adapted doctests for python 3.3
+- compatibility with python 2.6 (thanks to Thijs Janssen)
+
+version 1.3.1:
+
+- some re_ compatibility: get_compiled_pattern, parse
+- dropped regex_ from setup.py requirements
+
+version 1.3.0:
+
+- python 3.x compatibility
+- format_patterns
+
+version 1.2.1:
+
+- compose, resolve
+
+
+.. _re: http://docs.python.org/library/re
+.. _regex: http://pypi.python.org/pypi/regex
+
+
+Support
+-------
+This is free software. You may show your appreciation with a `donation`_.
+
+.. _donation: http://danielgerber.net/¤#Thanks-for-python-package-rfc3987
 
 %package license
 Summary: license components for the rfc3987 package.
@@ -39,6 +244,7 @@ python components for the rfc3987 package.
 Summary: python3 components for the rfc3987 package.
 Group: Default
 Requires: python3-core
+Provides: pypi(rfc3987)
 
 %description python3
 python3 components for the rfc3987 package.
@@ -46,20 +252,31 @@ python3 components for the rfc3987 package.
 
 %prep
 %setup -q -n rfc3987-1.3.8
+cd %{_builddir}/rfc3987-1.3.8
 
 %build
 export http_proxy=http://127.0.0.1:9/
 export https_proxy=http://127.0.0.1:9/
 export no_proxy=localhost,127.0.0.1,0.0.0.0
-export LANG=C
-export SOURCE_DATE_EPOCH=1551023224
+export LANG=C.UTF-8
+export SOURCE_DATE_EPOCH=1583220385
+# -Werror is for werrorists
+export GCC_IGNORE_WERROR=1
+export AR=gcc-ar
+export RANLIB=gcc-ranlib
+export NM=gcc-nm
+export CFLAGS="$CFLAGS -O3 -ffat-lto-objects -flto=4 "
+export FCFLAGS="$CFLAGS -O3 -ffat-lto-objects -flto=4 "
+export FFLAGS="$CFLAGS -O3 -ffat-lto-objects -flto=4 "
+export CXXFLAGS="$CXXFLAGS -O3 -ffat-lto-objects -flto=4 "
 export MAKEFLAGS=%{?_smp_mflags}
 python3 setup.py build
 
 %install
+export MAKEFLAGS=%{?_smp_mflags}
 rm -rf %{buildroot}
 mkdir -p %{buildroot}/usr/share/package-licenses/rfc3987
-cp COPYING.txt %{buildroot}/usr/share/package-licenses/rfc3987/COPYING.txt
+cp %{_builddir}/rfc3987-1.3.8/COPYING.txt %{buildroot}/usr/share/package-licenses/rfc3987/8624bcdae55baeef00cd11d5dfcfa60f68710a02
 python3 -tt setup.py build  install --root=%{buildroot}
 echo ----[ mark ]----
 cat %{buildroot}/usr/lib/python3*/site-packages/*/requires.txt || :
@@ -70,7 +287,7 @@ echo ----[ mark ]----
 
 %files license
 %defattr(0644,root,root,0755)
-/usr/share/package-licenses/rfc3987/COPYING.txt
+/usr/share/package-licenses/rfc3987/8624bcdae55baeef00cd11d5dfcfa60f68710a02
 
 %files python
 %defattr(-,root,root,-)
